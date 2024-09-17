@@ -1,0 +1,33 @@
+---
+repos:
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.3.0
+    hooks:
+      - id: mypy
+        args: [--check-untyped-defs, --ignore-missing-imports]
+        additional_dependencies: [
+          types-simplejson,
+          types-python-dateutil,
+          types-requests,
+        # types-redis 4.6.0.5 is failing mypy
+        # because of https://github.com/python/typeshed/pull/10531
+          types-redis==4.6.0.4,
+          types-pytz,
+          types-croniter,
+          types-PyYAML,
+          types-setuptools,
+          types-paramiko,
+          types-Markdown,
+        ]
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: check-yaml
+      - id: end-of-file-fixer
+        name: fix-eol
