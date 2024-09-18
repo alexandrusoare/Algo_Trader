@@ -6,6 +6,8 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
+MAX_CANDLES_PER_REQUEST = 5000
+
 
 class OandaAPI:
     def __init__(self, secure_header=SECURE_HEADER, oanda_url=OANDA_URL):
