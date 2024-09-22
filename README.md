@@ -1,2 +1,2 @@
-# Python
-A repo with personal Python projects
+# Algo_Trader
+An Algorithmic Trading platform built using only Python
