@@ -51,6 +51,38 @@ class CandleDatabase:
 
         candle_data.to_sql(table_name, self.conn, if_exists="append", index=False)
 
+    def convert_to_dataframe(self, candles: list) -> pd.DataFrame:
+        """
+        Converts a list of fetched candle data into a pandas DataFrame, sorted by Timestamp.
+
+        :param candles: A list of fetched candle data (from Oanda API).
+        :return: A pandas DataFrame containing the candles, ordered by Timestamp.
+        """
+        if not candles:
+            raise ValueError("No candle data provided")
+
+        candle_data = []
+        for batch in candles:
+            for candle in batch["candles"]:
+                if candle["complete"]:
+                    candle_data.append(
+                        {
+                            "Timestamp": candle["time"],
+                            "Open": candle["mid"]["o"],
+                            "High": candle["mid"]["h"],
+                            "Low": candle["mid"]["l"],
+                            "Close": candle["mid"]["c"],
+                            "Volume": candle["volume"],
+                        }
+                    )
+
+        df = pd.DataFrame(candle_data)
+
+        df["Timestamp"] = pd.to_datetime(df["Timestamp"])
+        df.sort_values(by="Timestamp", inplace=True)
+
+        return df
+
     def close(self) -> None:
         """Close the database connection."""
         self.conn.close()

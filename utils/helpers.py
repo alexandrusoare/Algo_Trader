@@ -46,6 +46,49 @@ def compute_candle_count(
     return int(candle_count)
 
 
+def compute_date_chunks(
+    granularity: str,
+    date_from: str,
+    date_to: str,
+    total_candles: int,
+    max_candles_per_request: int,
+):
+    """
+    Computes the date ranges for each chunk based on the total candles to fetch and max candles per request.
+
+    :param granularity: The granularity of the candles (e.g., "M1", "H1", "D").
+    :param date_from: The start date (string) in the format 'DD/MM/YYYY HH:MM:SS'.
+    :param date_to: The end date (string) in the format 'DD/MM/YYYY HH:MM:SS'.
+    :param total_candles: Total number of candles to fetch.
+    :param max_candles_per_request: Maximum number of candles that can be fetched per request.
+    :return: List of tuples containing date_from and date_to for each chunk.
+    """
+    utc_date_from = get_utc_dt_from_string(date_from)
+
+    granularity_minutes = INCREMENTS[granularity]
+
+    chunks = []
+    remaining_candles = total_candles
+    current_date_from = utc_date_from
+
+    while remaining_candles > 0:
+        candles_in_chunk = min(max_candles_per_request, remaining_candles)
+        time_in_chunk = candles_in_chunk * granularity_minutes
+        current_date_to = current_date_from + dt.timedelta(minutes=time_in_chunk)
+
+        chunks.append(
+            (
+                current_date_from.strftime("%d-%m-%Y %H:%M:%S"),
+                current_date_to.strftime("%d-%m-%Y %H:%M:%S"),
+            )
+        )
+
+        current_date_from = current_date_to
+        remaining_candles -= candles_in_chunk
+
+    return chunks
+
+
 def get_trading_session_status(index: pd.DatetimeIndex) -> pd.Series:
     """
     Returns a Pandas Series indicating whether the market is open (True) or closed (False).

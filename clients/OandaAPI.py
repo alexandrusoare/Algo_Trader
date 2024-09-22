@@ -1,6 +1,15 @@
+from concurrent.futures import ThreadPoolExecutor
+from typing import Optional
 import requests
 from utils.config import OANDA_URL, SECURE_HEADER
+import datetime as dt
 import logging
+
+from utils.helpers import (
+    compute_candle_count,
+    compute_date_chunks,
+    get_utc_dt_from_string,
+)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -21,26 +30,37 @@ class OandaAPI:
         self.secure_header = secure_header
         self.session = requests.Session()
 
-    def fetch_candles(self, pair_name, granularity="M1", count=10):
+    def get_candles(
+        self, pair_name, granularity="M1", count=None, date_from=None, date_to=None
+    ):
         """
-        Fetches the last 'n' candles for a given currency pair.
+        Makes the API call to OANDA to fetch candles.
 
-        :param pair_name: The name of the currency pair (e.g., "EUR_USD")
-        :param granularity: The time frame for each candle (default "M1" for 1-minute candles)
-        :param count: The number of candles to retrieve (default 10)
-        :return: JSON response containing the candlestick data or None if an error occurred
+        :param pair_name: The name of the currency pair (e.g., "EUR_USD").
+        :param granularity: The time frame for each candle (e.g., "M1", "H1").
+        :param count: The number of candles to retrieve. If None, fetch based on date range.
+        :param date_from: Start date for fetching candles (datetime object). If None, use `count`.
+        :param date_to: End date for fetching candles (datetime object). If None, use `count`.
+        :return: The JSON response from the API or None in case of an error.
         """
         url = f"{self.oanda_url}/instruments/{pair_name}/candles"
-        params = {"granularity": granularity, "price": "MBA", "count": count}
+        params = {"granularity": granularity, "price": "MBA"}
+
+        if count:
+            params["count"] = count
+        if date_from:
+            params["from"] = get_utc_dt_from_string(date_from)
+        if date_to:
+            params["to"] = get_utc_dt_from_string(date_to)
+
+        if not count and not date_from and not date_to:
+            raise ValueError(
+                "You must provide either `count` or a date range (`date_from` or `date_to`)."
+            )
 
         try:
-            response = self.session.get(
-                url, params=params, headers=self.secure_header, timeout=10
-            )
+            response = self.session.get(url, params=params, headers=self.secure_header)
             response.raise_for_status()
-            logging.info(
-                f"Successfully fetched {count} candles for {pair_name} with granularity {granularity}"
-            )
             return response.json()
         except requests.exceptions.HTTPError as http_err:
             logging.error(f"HTTP error occurred: {http_err}")
@@ -54,3 +74,63 @@ class OandaAPI:
             logging.error(f"An unexpected error occurred: {e}")
 
         return None
+
+    def fetch_candles_in_parallel(
+        self,
+        pair_name: str,
+        granularity: str,
+        date_from: str,
+        date_to: Optional[str] = None,
+        max_workers: int = 4,
+    ):
+        """
+        Fetches candles in parallel using threading for the specified date range.
+
+        :param pair_name: The currency pair to fetch candles for (e.g., "EUR_USD").
+        :param granularity: The granularity of the candles (e.g., "M1", "H1").
+        :param date_from: The start date for fetching candles (string format: 'YYYY-MM-DD HH:MM:SS').
+        :param date_to: The end date for fetching candles (string format: 'YYYY-MM-DD HH:MM:SS'). If None, fetch until now.
+        :param max_workers: The maximum number of worker threads.
+        :return: A list of fetched candles.
+        """
+
+        if date_to is None:
+            utc_date_to = dt.datetime.now(dt.timezone.utc)
+        else:
+            utc_date_to = get_utc_dt_from_string(date_to)
+
+        total_candles = compute_candle_count(
+            granularity, date_from, utc_date_to.strftime("%d/%m/%Y %H:%M:%S")
+        )
+
+        date_chunks = compute_date_chunks(
+            granularity,
+            date_from,
+            utc_date_to.strftime("%d/%m/%Y %H:%M:%S"),
+            total_candles,
+            MAX_CANDLES_PER_REQUEST,
+        )
+
+        results = []
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(
+                    self.get_candles,
+                    pair_name,
+                    granularity,
+                    date_from=chunk[0],
+                    date_to=chunk[1],
+                )
+                for chunk in date_chunks
+            ]
+
+            for future in futures:
+                try:
+                    result = future.result()
+                    if result:
+                        results.append(result)
+                except Exception as e:
+                    logging.error(f"Error occurred while fetching candles: {e}")
+
+        return results
