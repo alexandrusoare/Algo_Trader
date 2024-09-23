@@ -49,7 +49,7 @@ def compute_candle_count(
 def compute_date_chunks(
     granularity: str,
     date_from: str,
-    date_to: str,
+    date_to: Optional[str],
     total_candles: int,
     max_candles_per_request: int,
 ):
@@ -78,8 +78,8 @@ def compute_date_chunks(
 
         chunks.append(
             (
-                current_date_from.strftime("%d-%m-%Y %H:%M:%S"),
-                current_date_to.strftime("%d-%m-%Y %H:%M:%S"),
+                current_date_from,
+                current_date_to,
             )
         )
 

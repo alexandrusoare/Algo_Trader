@@ -1,7 +1,12 @@
+import logging
 import sqlite3
 from typing import Optional
 from utils.config import DB_PATH
 import pandas as pd
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 
 class CandleDatabase:
@@ -12,6 +17,7 @@ class CandleDatabase:
             self.db_name = db_name or DB_PATH
             self.conn = sqlite3.connect(self.db_name)  # type: ignore
             self.cursor = self.conn.cursor()
+            self.conn.execute("PRAGMA journal_mode=WAL;")
 
     def create_table(self, instrument: str, granularity: str):
         """
@@ -30,26 +36,47 @@ class CandleDatabase:
                 low REAL NOT NULL,
                 close REAL NOT NULL,
                 volume INTEGER NOT NULL,
-                in_session BOOLEAN NOT NULL,
                 UNIQUE (timestamp)
             )
         """
         self.cursor.execute(create_table_sql)
         self.conn.commit()
+        logging.info(f"Created table for {instrument} with granularity {granularity}")
 
     def insert_candles_from_dataframe(
-        self, instrument: str, granularity: str, candle_data: pd.DataFrame
+        self,
+        instrument: str,
+        granularity: str,
+        candle_data: pd.DataFrame,
+        batch_size: int = 200000,
     ) -> None:
         """
-        Insert multiple candles from a Pandas DataFrame into the corresponding table.
+        Insert multiple candles from a Pandas DataFrame into the corresponding table, wrapped in a transaction.
 
         :param instrument: The currency pair (e.g., "EUR_USD").
         :param granularity: The granularity of the candles (e.g., "M1", "H1").
         :param candle_data: A Pandas DataFrame containing the candle data.
+        :param batch_size: The number of rows to insert per batch (default: 200,000 rows).
         """
         table_name = f"{instrument}_{granularity}".replace("/", "_")
 
-        candle_data.to_sql(table_name, self.conn, if_exists="append", index=False)
+        try:
+            self.cursor.execute("BEGIN TRANSACTION")
+
+            for i in range(0, len(candle_data), batch_size):
+                batch_df = candle_data.iloc[i : i + batch_size]
+                batch_df.to_sql(table_name, self.conn, if_exists="append", index=False)
+
+            self.conn.commit()
+            logging.info(f"Inserted {len(candle_data)} rows into {table_name}")
+
+        except sqlite3.DatabaseError as e:
+            self.conn.rollback()
+            logging.error(f"Error inserting into {table_name}: {e}")
+            raise
+        logging.info(
+            f"Finished adding data for {instrument} with granularity{granularity} in db!"
+        )
 
     def convert_to_dataframe(self, candles: list) -> pd.DataFrame:
         """
@@ -80,7 +107,6 @@ class CandleDatabase:
 
         df["Timestamp"] = pd.to_datetime(df["Timestamp"])
         df.sort_values(by="Timestamp", inplace=True)
-
         return df
 
     def close(self) -> None:

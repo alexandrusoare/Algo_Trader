@@ -2,13 +2,11 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 import requests
 from utils.config import OANDA_URL, SECURE_HEADER
-import datetime as dt
 import logging
 
 from utils.helpers import (
     compute_candle_count,
     compute_date_chunks,
-    get_utc_dt_from_string,
 )
 
 logging.basicConfig(
@@ -49,9 +47,9 @@ class OandaAPI:
         if count:
             params["count"] = count
         if date_from:
-            params["from"] = get_utc_dt_from_string(date_from)
+            params["from"] = int(date_from.timestamp())
         if date_to:
-            params["to"] = get_utc_dt_from_string(date_to)
+            params["to"] = int(date_to.timestamp())
 
         if not count and not date_from and not date_to:
             raise ValueError(
@@ -81,7 +79,7 @@ class OandaAPI:
         granularity: str,
         date_from: str,
         date_to: Optional[str] = None,
-        max_workers: int = 4,
+        max_workers: int = 10,
     ):
         """
         Fetches candles in parallel using threading for the specified date range.
@@ -93,24 +91,16 @@ class OandaAPI:
         :param max_workers: The maximum number of worker threads.
         :return: A list of fetched candles.
         """
-
-        if date_to is None:
-            utc_date_to = dt.datetime.now(dt.timezone.utc)
-        else:
-            utc_date_to = get_utc_dt_from_string(date_to)
-
-        total_candles = compute_candle_count(
-            granularity, date_from, utc_date_to.strftime("%d/%m/%Y %H:%M:%S")
-        )
+        logging.info(f"Fetching candles for {pair_name} and granularity {granularity}")
+        total_candles = compute_candle_count(granularity, date_from, date_to)
 
         date_chunks = compute_date_chunks(
             granularity,
             date_from,
-            utc_date_to.strftime("%d/%m/%Y %H:%M:%S"),
+            date_to,
             total_candles,
             MAX_CANDLES_PER_REQUEST,
         )
-
         results = []
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -132,5 +122,7 @@ class OandaAPI:
                         results.append(result)
                 except Exception as e:
                     logging.error(f"Error occurred while fetching candles: {e}")
-
+        logging.info(
+            f"Finished fetching candles for {pair_name} with granularity {granularity}"
+        )
         return results
