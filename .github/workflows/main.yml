@@ -1,0 +1,10 @@
+name: Giddy Up Test
+
+on: [push]
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Say hello
+        run: echo "Giddy up, GitHub Actions!"
